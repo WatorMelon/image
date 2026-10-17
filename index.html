@@ -1,0 +1,1237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图片工作台 - 颜色提取 · 裁剪 · 标注</title>
+<style>
+  :root {
+    --bg: #0e1014;
+    --panel: #161a21;
+    --panel-2: #1c212b;
+    --border: #2a3140;
+    --text: #e8ecf3;
+    --muted: #8b94a7;
+    --accent: #5b8cff;
+    --accent-hover: #7aa2ff;
+    --danger: #ff5c5c;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    font-size: 14px;
+  }
+  #app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* ---------- 顶栏 ---------- */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 52px; padding: 0 16px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .brand { font-size: 16px; font-weight: 600; letter-spacing: 1px; }
+  .brand span { color: var(--accent); }
+  .actions { display: flex; gap: 8px; align-items: center; }
+
+  .btn {
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 7px 14px; cursor: pointer; font-size: 13px;
+    transition: background .15s, border-color .15s, opacity .15s;
+    font-family: inherit;
+  }
+  .btn:hover:not(:disabled) { background: #242b38; border-color: #3a4356; }
+  .btn:disabled { opacity: .38; cursor: not-allowed; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+  select {
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 7px 8px; font-size: 13px; font-family: inherit; cursor: pointer;
+  }
+  select:focus, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  /* ---------- 裁剪子栏 ---------- */
+  .crop-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 16px; background: #132033;
+    border-bottom: 1px solid #27405e; flex-shrink: 0;
+  }
+  .crop-bar .label { color: #9fc0ff; font-size: 13px; }
+  .crop-bar[hidden] { display: none; }
+
+  /* ---------- 主区域 ---------- */
+  main { display: flex; flex: 1; min-height: 0; }
+
+  .toolbar {
+    width: 68px; background: var(--panel); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 10px 0; gap: 6px; flex-shrink: 0; overflow-y: auto;
+  }
+  .tool-btn {
+    width: 52px; height: 52px; border-radius: var(--radius);
+    background: transparent; border: 1px solid transparent;
+    color: var(--muted); cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    font-size: 11px; font-family: inherit;
+    transition: background .15s, color .15s;
+  }
+  .tool-btn svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .tool-btn:hover { background: var(--panel-2); color: var(--text); }
+  .tool-btn.active { background: rgba(91,140,255,.16); border-color: var(--accent); color: var(--accent-hover); }
+  .tool-sep { width: 36px; height: 1px; background: var(--border); margin: 4px 0; flex-shrink: 0; }
+
+  /* ---------- 舞台 ---------- */
+  .stage {
+    flex: 1; position: relative; min-width: 0;
+    display: flex; align-items: center; justify-content: center;
+    background:
+      radial-gradient(circle at 50% 40%, #14181f 0%, #0b0d11 75%);
+    overflow: hidden;
+  }
+  #view {
+    max-width: calc(100% - 32px); max-height: calc(100% - 32px);
+    display: none; touch-action: none;
+    background: transparent;
+    box-shadow: 0 8px 40px rgba(0,0,0,.55);
+    border: 1px solid rgba(255,255,255,.07);
+  }
+  #view.show { display: block; }
+
+  .empty {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; color: var(--muted); cursor: pointer; text-align: center;
+    border: 2px dashed transparent; border-radius: 12px; margin: 24px;
+    transition: border-color .15s, background .15s;
+  }
+  .empty:hover { border-color: #33405a; background: rgba(91,140,255,.04); }
+  .empty svg { width: 56px; height: 56px; stroke: var(--accent); fill: none; stroke-width: 1.4; opacity: .85; }
+  .empty h2 { font-size: 18px; color: var(--text); font-weight: 600; }
+  .empty p { font-size: 13px; line-height: 2; }
+  .empty .kbd {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 5px; padding: 2px 8px; font-size: 12px; color: var(--text);
+  }
+  .empty[hidden] { display: none; }
+
+  .drop-hint {
+    position: absolute; inset: 12px; border: 2px dashed var(--accent);
+    border-radius: 12px; background: rgba(91,140,255,.08);
+    display: none; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 600; color: var(--accent-hover);
+    pointer-events: none; z-index: 30;
+  }
+  body.dragging .drop-hint { display: flex; }
+
+  /* 文字输入浮层 */
+  .text-editor {
+    position: absolute; z-index: 40; display: none;
+  }
+  .text-editor.show { display: block; }
+  .text-editor textarea {
+    background: rgba(10,12,16,.88); color: #fff;
+    border: 1.5px dashed var(--accent); border-radius: 6px;
+    padding: 6px 10px; resize: both; min-width: 180px; min-height: 48px;
+    font-family: inherit; line-height: 1.35;
+    box-shadow: 0 6px 24px rgba(0,0,0,.5);
+  }
+  .text-editor textarea:focus { outline: none; border-style: solid; }
+  .text-editor .tip { font-size: 11px; color: var(--muted); margin-top: 4px; white-space: nowrap; }
+
+  /* ---------- 右侧面板 ---------- */
+  .panel {
+    width: 302px; background: var(--panel); border-left: 1px solid var(--border);
+    overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 18px;
+    flex-shrink: 0;
+  }
+  .card {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px;
+  }
+  .card h3 {
+    font-size: 13px; font-weight: 600; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .card h3::before { content: ""; width: 3px; height: 13px; background: var(--accent); border-radius: 2px; }
+  .hint { font-size: 12px; color: var(--muted); line-height: 1.8; }
+
+  .color-row { display: flex; align-items: center; gap: 10px; }
+  .color-row input[type="color"] {
+    width: 46px; height: 36px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel); cursor: pointer; padding: 2px;
+  }
+  .color-row .hex { font-family: Consolas, monospace; font-size: 14px; color: var(--text); }
+
+  .palette {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 10px;
+    min-height: 32px;
+  }
+  .swatch {
+    aspect-ratio: 1; border-radius: 6px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.16);
+    transition: transform .12s, box-shadow .12s;
+  }
+  .swatch:hover { transform: scale(1.12); box-shadow: 0 3px 10px rgba(0,0,0,.5); z-index: 2; }
+  .row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .row label { font-size: 12px; color: var(--muted); flex-shrink: 0; width: 40px; }
+  .row input[type="range"] { flex: 1; accent-color: var(--accent); }
+  .row .val { font-size: 12px; width: 34px; text-align: right; color: var(--text); }
+  .check-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; cursor: pointer; }
+  .check-row input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+  .btn.full { width: 100%; margin-top: 10px; }
+
+  .info-table { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
+  .info-table div { display: flex; justify-content: space-between; gap: 10px; }
+  .info-table .k { color: var(--muted); }
+  .info-table .v { color: var(--text); text-align: right; word-break: break-all; }
+
+  .tools-extra { display: flex; gap: 8px; }
+  .tools-extra .btn { flex: 1; padding: 7px 4px; }
+
+  /* ---------- 状态栏 / 提示 ---------- */
+  .statusbar {
+    height: 28px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 14px; background: var(--panel); border-top: 1px solid var(--border);
+    font-size: 12px; color: var(--muted); flex-shrink: 0; gap: 16px;
+  }
+  .statusbar span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%) translateY(12px);
+    background: #222936; color: var(--text); border: 1px solid #38445c;
+    padding: 9px 18px; border-radius: 8px; font-size: 13px;
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+    z-index: 100; box-shadow: 0 8px 28px rgba(0,0,0,.5);
+    max-width: 80vw;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: #2c3444; border-radius: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  @media (max-width: 900px) {
+    .panel { width: 240px; }
+    .toolbar { width: 58px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="brand">图片<span>工作台</span></div>
+    <div class="actions">
+      <button class="btn primary" id="btnOpen">打开图片</button>
+      <input type="file" id="fileInput" accept="image/*" hidden>
+      <button class="btn" id="btnUndo" title="Ctrl+Z" disabled>撤销</button>
+      <button class="btn" id="btnRedo" title="Ctrl+Y" disabled>重做</button>
+      <button class="btn" id="btnReset" disabled>重置原图</button>
+      <select id="exportFormat" title="下载格式">
+        <option value="png">PNG</option>
+        <option value="jpeg">JPG</option>
+      </select>
+      <button class="btn primary" id="btnDownload" disabled>下载</button>
+    </div>
+  </header>
+
+  <div class="crop-bar" id="cropBar" hidden>
+    <span class="label">裁剪比例</span>
+    <select id="ratioSel">
+      <option value="free">自由</option>
+      <option value="1:1">1 : 1</option>
+      <option value="4:3">4 : 3</option>
+      <option value="3:2">3 : 2</option>
+      <option value="16:9">16 : 9</option>
+      <option value="9:16">9 : 16</option>
+    </select>
+    <button class="btn primary" id="btnCropApply">应用裁剪</button>
+    <button class="btn" id="btnCropCancel">取消裁剪</button>
+    <span class="hint">拖拽调整选区，可拖动四角与四边控制点</span>
+  </div>
+
+  <main>
+    <nav class="toolbar" id="toolbar">
+      <button class="tool-btn active" data-tool="pen" title="画笔：按住拖动绘制">
+        <svg viewBox="0 0 24 24"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
+        画笔
+      </button>
+      <button class="tool-btn" data-tool="rect" title="矩形：拖拽绘制">
+        <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1"/></svg>
+        矩形
+      </button>
+      <button class="tool-btn" data-tool="ellipse" title="椭圆：拖拽绘制">
+        <svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="9" ry="7"/></svg>
+        椭圆
+      </button>
+      <button class="tool-btn" data-tool="arrow" title="箭头：从起点拖到终点">
+        <svg viewBox="0 0 24 24"><path d="M5 19L19 5"/><path d="M11 5h8v8"/></svg>
+        箭头
+      </button>
+      <button class="tool-btn" data-tool="text" title="文字：点击图片放置">
+        <svg viewBox="0 0 24 24"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
+        文字
+      </button>
+      <div class="tool-sep"></div>
+      <button class="tool-btn" data-tool="crop" title="裁剪：拖拽选区后应用">
+        <svg viewBox="0 0 24 24"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>
+        裁剪
+      </button>
+      <button class="tool-btn" data-tool="eyedropper" title="取色：点击图片拾取颜色">
+        <svg viewBox="0 0 24 24"><path d="M2 22l1-4 12.05-12.05a2.12 2.12 0 0 1 3 3L6 21l-4 1z"/><path d="M14.5 5.5l4 4"/></svg>
+        取色
+      </button>
+    </nav>
+
+    <section class="stage" id="stage">
+      <canvas id="view"></canvas>
+
+      <div class="empty" id="empty" title="点击选择图片文件">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+        <h2>把图片放到这里</h2>
+        <p>点击选择文件 · 拖拽图片进来 · 直接 <span class="kbd">Ctrl + V</span> 粘贴</p>
+        <p>支持 PNG / JPG / WebP / GIF 等常见格式</p>
+      </div>
+
+      <div class="drop-hint">松开鼠标载入图片</div>
+
+      <div class="text-editor" id="textEditor">
+        <textarea id="textInput" placeholder="输入文字内容"></textarea>
+        <div class="tip">Enter 提交 · Shift+Enter 换行 · Esc 取消</div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div class="card">
+        <h3>当前颜色</h3>
+        <div class="color-row">
+          <input type="color" id="colorInput" value="#ff3b30" title="选择标注颜色">
+          <span class="hex" id="colorHex">#ff3b30</span>
+        </div>
+        <div class="hint" style="margin-top:8px">用「取色」工具点击图片，可手动提取任意像素颜色</div>
+      </div>
+
+      <div class="card">
+        <h3>颜色提取</h3>
+        <button class="btn primary full" id="btnExtract">一键提取图片主色</button>
+        <div class="palette" id="palette"></div>
+        <div class="hint" id="paletteHint" style="margin-top:8px">尚未提取。点击上方按钮自动分析图片主色，点击色块可复制色值并设为标注色。</div>
+      </div>
+
+      <div class="card">
+        <h3>标注样式</h3>
+        <div class="row">
+          <label>线宽</label>
+          <input type="range" id="lineWidth" min="1" max="60" value="8">
+          <span class="val" id="lineWidthVal">8</span>
+        </div>
+        <div class="row">
+          <label>字号</label>
+          <input type="range" id="fontSize" min="12" max="200" value="42">
+          <span class="val" id="fontSizeVal">42</span>
+        </div>
+        <label class="check-row"><input type="checkbox" id="fillChk"> 矩形 / 椭圆半透明填充</label>
+      </div>
+
+      <div class="card">
+        <h3>图片操作</h3>
+        <div class="tools-extra">
+          <button class="btn" id="btnRotate" disabled>旋转 90°</button>
+          <button class="btn" id="btnFlipH" disabled>水平翻转</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>图片信息</h3>
+        <div class="info-table">
+          <div><span class="k">文件名</span><span class="v" id="infoName">-</span></div>
+          <div><span class="k">当前尺寸</span><span class="v" id="infoSize">-</span></div>
+          <div><span class="k">原始尺寸</span><span class="v" id="infoOrig">-</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>使用说明</h3>
+        <div class="hint">
+          1. 载入图片：点击按钮、拖拽或 Ctrl+V 粘贴<br>
+          2. 提取颜色：一键提取主色，或用「取色」点击图片<br>
+          3. 裁剪：选中「裁剪」工具，拖出选区后点「应用裁剪」<br>
+          4. 标注：矩形 / 椭圆 / 箭头 / 画笔 / 文字<br>
+          5. Ctrl+Z 撤销，Ctrl+Y 重做，Esc 取消当前操作<br>
+          6. 完成后点「下载」导出图片
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="statusbar">
+    <span id="statusHint">请先载入一张图片</span>
+    <span id="statusSize"></span>
+  </footer>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(() => {
+  "use strict";
+
+  /* ================= 元素 ================= */
+  const $ = id => document.getElementById(id);
+  const view = $("view"), stage = $("stage"), empty = $("empty");
+  const bctx = (() => { const c = document.createElement("canvas"); return { canvas: c, ctx: c.getContext("2d", { willReadFrequently: true }) }; })();
+  const ctx = view.getContext("2d");
+  const toastEl = $("toast");
+  const paletteEl = $("palette"), paletteHint = $("paletteHint");
+  const colorInput = $("colorInput"), colorHex = $("colorHex");
+  const cropBar = $("cropBar"), ratioSel = $("ratioSel");
+  const textEditor = $("textEditor"), textInput = $("textInput");
+  const statusHint = $("statusHint"), statusSize = $("statusSize");
+
+  const MAX_DIM = 2560;      // 编辑分辨率上限
+  const MAX_HISTORY = 25;
+
+  const TOOLS = {
+    pen:        { name: "画笔", hint: "按住鼠标拖动即可绘制线条" },
+    rect:       { name: "矩形", hint: "按住鼠标拖拽绘制矩形" },
+    ellipse:    { name: "椭圆", hint: "按住鼠标拖拽绘制椭圆" },
+    arrow:      { name: "箭头", hint: "从起点按住拖到终点绘制箭头" },
+    text:       { name: "文字", hint: "点击图片上的位置，输入文字后按 Enter 提交" },
+    crop:       { name: "裁剪", hint: "拖拽调整裁剪选区，点击「应用裁剪」生效" },
+    eyedropper: { name: "取色", hint: "点击图片上的像素，提取颜色到调色板" }
+  };
+
+  const state = {
+    tool: "pen",
+    color: "#ff3b30",
+    lineWidth: 8,
+    fontSize: 42,
+    fill: false,
+    scale: 1,                // 显示缩放（image px → screen px）
+    history: [],
+    histIndex: -1,
+    original: null,          // 原始（缩放后）画布副本
+    name: "image",
+    origW: 0, origH: 0,
+    drawing: null,           // 进行中的图形
+    penPoints: null,
+    crop: null,              // { x, y, w, h }
+    cropDrag: null,          // { mode, startX, startY, rect }
+    textPos: null,           // 文字落点（图像坐标）
+    palette: []
+  };
+
+  const hasImage = () => bctx.canvas.width > 0 && bctx.canvas.height > 0;
+
+  /* ================= 通用 ================= */
+  let toastTimer = null;
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove("show"), 1800);
+  }
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.cssText = "position:fixed;left:-9999px;top:0";
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch (_) {}
+      document.body.removeChild(ta);
+      return ok;
+    }
+  }
+
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const toHex = (r, g, b) =>
+    "#" + [r, g, b].map(v => clamp(Math.round(v), 0, 255).toString(16).padStart(2, "0")).join("");
+
+  /* ================= 渲染 ================= */
+  function render() {
+    if (!hasImage()) return;
+    if (view.width !== bctx.canvas.width) view.width = bctx.canvas.width;
+    if (view.height !== bctx.canvas.height) view.height = bctx.canvas.height;
+
+    ctx.clearRect(0, 0, view.width, view.height);
+    ctx.drawImage(bctx.canvas, 0, 0);
+
+    if (state.drawing) drawShape(ctx, state.drawing);
+    if (state.tool === "pen" && state.penPoints && state.penPoints.length) {
+      drawShape(ctx, { type: "pen", points: state.penPoints, color: state.color, w: state.lineWidth });
+    }
+    if (state.tool === "crop" && state.crop) drawCropOverlay();
+
+    const rect = view.getBoundingClientRect();
+    state.scale = rect.width / view.width || 1;
+  }
+
+  /* ================= 图形绘制 ================= */
+  function drawShape(c, s) {
+    c.save();
+    c.strokeStyle = s.color;
+    c.fillStyle = s.color;
+    c.lineWidth = s.w;
+    c.lineCap = "round";
+    c.lineJoin = "round";
+
+    if (s.type === "rect") {
+      const x = Math.min(s.x1, s.x2), y = Math.min(s.y1, s.y2);
+      const w = Math.abs(s.x2 - s.x1), h = Math.abs(s.y2 - s.y1);
+      if (s.fill) { c.globalAlpha = 0.3; c.fillRect(x, y, w, h); c.globalAlpha = 1; }
+      c.strokeRect(x, y, w, h);
+
+    } else if (s.type === "ellipse") {
+      const cx = (s.x1 + s.x2) / 2, cy = (s.y1 + s.y2) / 2;
+      const rx = Math.abs(s.x2 - s.x1) / 2, ry = Math.abs(s.y2 - s.y1) / 2;
+      if (rx < 1 || ry < 1) { c.restore(); return; }
+      c.beginPath();
+      c.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      if (s.fill) { c.globalAlpha = 0.3; c.fill(); c.globalAlpha = 1; }
+      c.stroke();
+
+    } else if (s.type === "arrow") {
+      drawArrow(c, s.x1, s.y1, s.x2, s.y2, s.w);
+
+    } else if (s.type === "pen") {
+      strokePath(c, s.points, s.w);
+
+    } else if (s.type === "text") {
+      c.font = `600 ${s.size}px "Microsoft YaHei", "Segoe UI", sans-serif`;
+      c.textBaseline = "top";
+      c.shadowColor = "rgba(0,0,0,0.5)";
+      c.shadowBlur = Math.max(2, s.size * 0.08);
+      c.shadowOffsetY = 1;
+      const lines = s.text.split("\n");
+      lines.forEach((line, i) => c.fillText(line, s.x, s.y + i * s.size * 1.35));
+    }
+    c.restore();
+  }
+
+  function drawArrow(c, x1, y1, x2, y2, w) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.hypot(dx, dy);
+    if (len < 2) return;
+    const angle = Math.atan2(dy, dx);
+    const head = clamp(len * 0.28, w * 2.2, w * 5);
+    const back = head * 0.45;
+
+    c.beginPath();
+    c.moveTo(x1, y1);
+    c.lineTo(x2 - back * Math.cos(angle), y2 - back * Math.sin(angle));
+    c.stroke();
+
+    c.beginPath();
+    c.moveTo(x2, y2);
+    c.lineTo(x2 - head * Math.cos(angle - 0.42), y2 - head * Math.sin(angle - 0.42));
+    c.lineTo(x2 - head * Math.cos(angle + 0.42), y2 - head * Math.sin(angle + 0.42));
+    c.closePath();
+    c.fill();
+  }
+
+  function strokePath(c, points, w) {
+    if (!points || !points.length) return;
+    c.lineWidth = w;
+    c.beginPath();
+    c.moveTo(points[0].x, points[0].y);
+    if (points.length === 1) {
+      c.lineTo(points[0].x + 0.01, points[0].y);
+    } else {
+      for (let i = 1; i < points.length - 1; i++) {
+        const mx = (points[i].x + points[i + 1].x) / 2;
+        const my = (points[i].y + points[i + 1].y) / 2;
+        c.quadraticCurveTo(points[i].x, points[i].y, mx, my);
+      }
+      const last = points[points.length - 1];
+      c.lineTo(last.x, last.y);
+    }
+    c.stroke();
+  }
+
+  /* ================= 裁剪浮层 ================= */
+  function drawCropOverlay() {
+    const r = state.crop, W = view.width, H = view.height;
+    ctx.save();
+    ctx.fillStyle = "rgba(8,10,14,0.62)";
+    ctx.beginPath();
+    ctx.rect(0, 0, W, H);
+    ctx.rect(r.x, r.y, r.w, r.h);
+    ctx.fill("evenodd");
+
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = Math.max(1.5, 2 / state.scale);
+    ctx.strokeRect(r.x, r.y, r.w, r.h);
+
+    ctx.strokeStyle = "rgba(255,255,255,0.4)";
+    ctx.lineWidth = Math.max(1, 1 / state.scale);
+    for (let i = 1; i <= 2; i++) {
+      ctx.beginPath();
+      ctx.moveTo(r.x + (r.w * i) / 3, r.y); ctx.lineTo(r.x + (r.w * i) / 3, r.y + r.h);
+      ctx.moveTo(r.x, r.y + (r.h * i) / 3); ctx.lineTo(r.x + r.w, r.y + (r.h * i) / 3);
+      ctx.stroke();
+    }
+
+    const hs = 7 / state.scale;
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#5b8cff";
+    ctx.lineWidth = Math.max(1.5, 1.5 / state.scale);
+    cropHandlePoints(r).forEach(([hx, hy]) => {
+      ctx.fillRect(hx - hs, hy - hs, hs * 2, hs * 2);
+      ctx.strokeRect(hx - hs, hy - hs, hs * 2, hs * 2);
+    });
+    ctx.restore();
+  }
+
+  function cropHandlePoints(r) {
+    return [
+      [r.x, r.y], [r.x + r.w / 2, r.y], [r.x + r.w, r.y],
+      [r.x + r.w, r.y + r.h / 2], [r.x + r.w, r.y + r.h],
+      [r.x + r.w / 2, r.y + r.h], [r.x, r.y + r.h], [r.x, r.y + r.h / 2]
+    ];
+  }
+
+  function cropHit(p) {
+    const r = state.crop;
+    if (!r) return null;
+    const hs = 10 / state.scale;
+    const names = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+    const pts = cropHandlePoints(r);
+    for (let i = 0; i < pts.length; i++) {
+      if (Math.abs(p.x - pts[i][0]) <= hs && Math.abs(p.y - pts[i][1]) <= hs) return names[i];
+    }
+    if (p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h) return "move";
+    return null;
+  }
+
+  function cropRatio() {
+    const v = ratioSel.value;
+    if (v === "free") return null;
+    const [a, b] = v.split(":").map(Number);
+    return a / b;
+  }
+
+  /* ================= 历史记录 ================= */
+  function cloneCanvas(src) {
+    const c = document.createElement("canvas");
+    c.width = src.width; c.height = src.height;
+    c.getContext("2d").drawImage(src, 0, 0);
+    return c;
+  }
+
+  function pushHistory() {
+    state.history = state.history.slice(0, state.histIndex + 1);
+    state.history.push(cloneCanvas(bctx.canvas));
+    if (state.history.length > MAX_HISTORY) state.history.shift();
+    state.histIndex = state.history.length - 1;
+    updateUI();
+  }
+
+  function restoreHistory(index) {
+    const snap = state.history[index];
+    if (!snap) return;
+    state.histIndex = index;
+    bctx.canvas.width = snap.width;
+    bctx.canvas.height = snap.height;
+    bctx.ctx.drawImage(snap, 0, 0);
+    updateInfo();
+    render();
+    updateUI();
+  }
+
+  function undo() { if (state.histIndex > 0) restoreHistory(state.histIndex - 1); }
+  function redo() { if (state.histIndex < state.history.length - 1) restoreHistory(state.histIndex + 1); }
+
+  /* ================= 图片载入 ================= */
+  function loadFromBlob(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const ow = img.naturalWidth, oh = img.naturalHeight;
+      if (!ow || !oh) { toast("图片解码失败"); return; }
+      const k = Math.min(1, MAX_DIM / Math.max(ow, oh));
+      const w = Math.max(1, Math.round(ow * k)), h = Math.max(1, Math.round(oh * k));
+
+      bctx.canvas.width = w; bctx.canvas.height = h;
+      bctx.ctx.clearRect(0, 0, w, h);
+      bctx.ctx.drawImage(img, 0, 0, w, h);
+
+      state.origW = ow; state.origH = oh;
+      state.name = (name || "image").replace(/\.[^.]+$/, "");
+      state.original = cloneCanvas(bctx.canvas);
+      state.crop = null; state.drawing = null; state.penPoints = null;
+
+      state.history = [];
+      state.histIndex = -1;
+      pushHistory();
+
+      empty.hidden = true;
+      view.classList.add("show");
+      updateInfo();
+      render();
+      setTool("pen");
+      extractColors(true);
+      toast(k < 1 ? `图片过大，已按 ${w}×${h} 编辑` : "图片已载入");
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); toast("无法识别该图片文件"); };
+    img.src = url;
+  }
+
+  function pickFile() { $("fileInput").click(); }
+
+  /* ================= 颜色提取 ================= */
+  function extractColors(silent) {
+    if (!hasImage()) { if (!silent) toast("请先载入图片"); return; }
+    const maxSide = 140;
+    const k = Math.min(1, maxSide / Math.max(bctx.canvas.width, bctx.canvas.height));
+    const sw = Math.max(1, Math.round(bctx.canvas.width * k));
+    const sh = Math.max(1, Math.round(bctx.canvas.height * k));
+    const sc = document.createElement("canvas");
+    sc.width = sw; sc.height = sh;
+    const sctx = sc.getContext("2d", { willReadFrequently: true });
+    sctx.drawImage(bctx.canvas, 0, 0, sw, sh);
+
+    let data;
+    try { data = sctx.getImageData(0, 0, sw, sh).data; }
+    catch (e) { if (!silent) toast("读取像素失败"); return; }
+
+    const buckets = new Map(); // key -> {r,g,b,n}
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < 128) continue;
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+      let e = buckets.get(key);
+      if (!e) { e = { r: 0, g: 0, b: 0, n: 0 }; buckets.set(key, e); }
+      e.r += r; e.g += g; e.b += b; e.n++;
+    }
+
+    const sorted = [...buckets.values()].sort((a, b) => b.n - a.n);
+    const picked = [];
+    for (const e of sorted) {
+      const r = e.r / e.n, g = e.g / e.n, b = e.b / e.n;
+      let dup = false;
+      for (const p of picked) {
+        const d = Math.hypot(p.r - r, p.g - g, p.b - b);
+        if (d < 52) { dup = true; break; }
+      }
+      if (!dup) picked.push({ r, g, b });
+      if (picked.length >= 12) break;
+    }
+
+    state.palette = picked.map(c => toHex(c.r, c.g, c.b));
+    renderPalette();
+    if (!silent) toast(`已提取 ${state.palette.length} 种主色`);
+  }
+
+  function addPaletteColor(hex) {
+    hex = hex.toLowerCase();
+    state.palette = [hex, ...state.palette.filter(c => c !== hex)].slice(0, 24);
+    renderPalette();
+  }
+
+  function renderPalette() {
+    paletteEl.innerHTML = "";
+    if (!state.palette.length) return;
+    paletteHint.style.display = "none";
+    state.palette.forEach(hex => {
+      const d = document.createElement("div");
+      d.className = "swatch";
+      d.style.background = hex;
+      d.title = hex + "（点击复制并设为标注色）";
+      d.addEventListener("click", async () => {
+        setColor(hex);
+        addPaletteColor(hex);
+        const ok = await copyText(hex);
+        toast((ok ? "已复制 " : "已设为标注色 ") + hex);
+      });
+      paletteEl.appendChild(d);
+    });
+  }
+
+  function setColor(hex) {
+    state.color = hex.toLowerCase();
+    colorInput.value = state.color;
+    colorHex.textContent = state.color;
+  }
+
+  /* ================= 工具切换 ================= */
+  function setTool(tool) {
+    if (state.tool === "crop" && tool !== "crop") cancelCrop(false);
+    if (state.tool === "text") closeTextEditor(false);
+    state.tool = tool;
+    document.querySelectorAll(".tool-btn").forEach(b =>
+      b.classList.toggle("active", b.dataset.tool === tool));
+    cropBar.hidden = tool !== "crop";
+    view.style.cursor = tool === "text" ? "text" : tool === "crop" ? "default" : "crosshair";
+    statusHint.textContent = hasImage() ? TOOLS[tool].hint : "请先载入一张图片";
+    if (tool === "crop" && hasImage()) initCrop();
+    render();
+  }
+
+  /* ================= 裁剪流程 ================= */
+  function initCrop() {
+    const W = bctx.canvas.width, H = bctx.canvas.height;
+    const w = W * 0.75, h = H * 0.75;
+    state.crop = { x: (W - w) / 2, y: (H - h) / 2, w, h };
+    enforceRatioOnCreate();
+    render();
+  }
+
+  function enforceRatioOnCreate() {
+    const ratio = cropRatio();
+    if (!ratio || !state.crop) return;
+    const W = bctx.canvas.width, H = bctx.canvas.height;
+    const r = state.crop;
+    let w = r.w, h = w / ratio;
+    if (h > H) { h = H; w = h * ratio; }
+    r.w = w; r.h = h;
+    r.x = clamp(r.x, 0, W - w);
+    r.y = clamp(r.y, 0, H - h);
+  }
+
+  function cancelCrop(renderNow = true) {
+    state.crop = null;
+    state.cropDrag = null;
+    if (renderNow) render();
+  }
+
+  function applyCrop() {
+    const r = state.crop;
+    if (!r) return;
+    const x = clamp(Math.round(r.x), 0, bctx.canvas.width - 1);
+    const y = clamp(Math.round(r.y), 0, bctx.canvas.height - 1);
+    const w = clamp(Math.round(r.w), 1, bctx.canvas.width - x);
+    const h = clamp(Math.round(r.h), 1, bctx.canvas.height - y);
+    if (w < 2 || h < 2) { toast("裁剪区域太小"); return; }
+
+    const nc = document.createElement("canvas");
+    nc.width = w; nc.height = h;
+    nc.getContext("2d").drawImage(bctx.canvas, x, y, w, h, 0, 0, w, h);
+    bctx.canvas.width = w; bctx.canvas.height = h;
+    bctx.ctx.drawImage(nc, 0, 0);
+
+    state.crop = null;
+    pushHistory();
+    updateInfo();
+    setTool("pen");
+    toast(`已裁剪为 ${w} × ${h}`);
+  }
+
+  /* ================= 文字编辑 ================= */
+  function openTextEditor(pos) {
+    state.textPos = pos;
+    const r = view.getBoundingClientRect();
+    const sr = stage.getBoundingClientRect();
+    const px = pos.x * (r.width / view.width);
+    const py = pos.y * (r.height / view.height);
+    textEditor.style.left = (r.left - sr.left + px) + "px";
+    textEditor.style.top = (r.top - sr.top + py) + "px";
+    textInput.style.fontSize = Math.max(13, state.fontSize * (r.width / view.width)) + "px";
+    textInput.value = "";
+    textEditor.classList.add("show");
+    setTimeout(() => textInput.focus(), 0);
+  }
+
+  function closeTextEditor(commit) {
+    if (!textEditor.classList.contains("show")) return;
+    const val = textInput.value.trim();
+    const pos = state.textPos;
+    textEditor.classList.remove("show");
+    textInput.value = "";
+    state.textPos = null;
+    if (commit && val && pos) {
+      drawShape(bctx.ctx, {
+        type: "text", x: pos.x, y: pos.y, text: val,
+        color: state.color, size: state.fontSize
+      });
+      pushHistory();
+      render();
+    }
+  }
+
+  /* ================= 指针交互 ================= */
+  function getPos(e) {
+    const r = view.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) / r.width * view.width,
+      y: (e.clientY - r.top) / r.height * view.height
+    };
+  }
+
+  view.addEventListener("pointerdown", e => {
+    if (!hasImage() || e.button !== 0) return;
+    if (state.tool === "text") return; // 由 click 事件处理
+    view.setPointerCapture(e.pointerId);
+    const p = getPos(e);
+
+    if (state.tool === "eyedropper") {
+      pickColorAt(p);
+      return;
+    }
+
+    if (state.tool === "crop") {
+      const hit = cropHit(p);
+      if (!hit) { // 重新框选
+        state.crop = { x: p.x, y: p.y, w: 1, h: 1 };
+        state.cropDrag = { mode: "new", start: p, rect: { ...state.crop } };
+      } else {
+        state.cropDrag = { mode: hit, start: p, rect: { ...state.crop } };
+      }
+      render();
+      return;
+    }
+
+    if (state.tool === "pen") {
+      state.penPoints = [p];
+      return;
+    }
+
+    state.drawing = { type: state.tool, x1: p.x, y1: p.y, x2: p.x, y2: p.y, color: state.color, w: state.lineWidth, fill: state.fill };
+  });
+
+  view.addEventListener("pointermove", e => {
+    if (!hasImage()) return;
+    const p = getPos(e);
+
+    if (state.tool === "crop" && !state.cropDrag) {
+      const hit = cropHit(p);
+      view.style.cursor = !hit ? "default"
+        : hit === "move" ? "move"
+        : (["nw", "se"].includes(hit) ? "nwse-resize" : ["ne", "sw"].includes(hit) ? "nesw-resize" : ["n", "s"].includes(hit) ? "ns-resize" : "ew-resize");
+      return;
+    }
+
+    if (state.tool === "crop" && state.cropDrag) {
+      updateCropDrag(p);
+      render();
+      return;
+    }
+
+    if (state.tool === "pen" && state.penPoints) {
+      const last = state.penPoints[state.penPoints.length - 1];
+      if (Math.hypot(p.x - last.x, p.y - last.y) > 1.2) state.penPoints.push(p);
+      render();
+      return;
+    }
+
+    if (state.drawing) {
+      state.drawing.x2 = clamp(p.x, 0, view.width);
+      state.drawing.y2 = clamp(p.y, 0, view.height);
+      render();
+    }
+  });
+
+  view.addEventListener("pointerup", e => {
+    if (!hasImage()) return;
+
+    if (state.tool === "crop") { state.cropDrag = null; return; }
+
+    if (state.tool === "pen" && state.penPoints) {
+      const pts = state.penPoints;
+      state.penPoints = null;
+      if (pts.length) {
+        if (pts.length === 1) pts.push({ x: pts[0].x + 0.01, y: pts[0].y });
+        drawShape(bctx.ctx, { type: "pen", points: pts, color: state.color, w: state.lineWidth });
+        pushHistory();
+      }
+      render();
+      return;
+    }
+
+    if (state.drawing) {
+      const s = state.drawing;
+      state.drawing = null;
+      const dist = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
+      if (dist > 2 && (s.type !== "rect" && s.type !== "ellipse" || (Math.abs(s.x2 - s.x1) > 2 && Math.abs(s.y2 - s.y1) > 2))) {
+        drawShape(bctx.ctx, s);
+        pushHistory();
+      }
+      render();
+    }
+  });
+
+  view.addEventListener("pointercancel", () => {
+    state.drawing = null; state.penPoints = null; state.cropDrag = null; render();
+  });
+
+  view.addEventListener("click", e => {
+    if (!hasImage() || state.tool !== "text") return;
+    openTextEditor(getPos(e));
+  });
+
+  function updateCropDrag(p) {
+    const d = state.cropDrag, r0 = d.rect, ratio = cropRatio();
+    const W = bctx.canvas.width, H = bctx.canvas.height;
+    const dx = p.x - d.start.x, dy = p.y - d.start.y;
+    let r;
+
+    if (d.mode === "new") {
+      let w = Math.abs(dx), h = Math.abs(dy);
+      if (ratio) { h = w / ratio; if (dy < 0) h = -h; }
+      r = {
+        x: dx < 0 ? d.start.x + dx : d.start.x,
+        y: dy < 0 ? d.start.y + (ratio ? -h : dy) : d.start.y,
+        w: Math.max(2, Math.abs(w)),
+        h: Math.max(2, Math.abs(h))
+      };
+      r.x = clamp(r.x, 0, W - r.w);
+      r.y = clamp(r.y, 0, H - r.h);
+
+    } else if (d.mode === "move") {
+      r = { ...r0, x: clamp(r0.x + dx, 0, W - r0.w), y: clamp(r0.y + dy, 0, H - r0.h) };
+
+    } else {
+      r = { ...r0 };
+      const corner = ["nw", "ne", "se", "sw"].includes(d.mode);
+      if (d.mode.includes("e")) r.w = r0.w + dx;
+      if (d.mode.includes("w")) { r.x = r0.x + dx; r.w = r0.w - dx; }
+      if (d.mode.includes("s")) r.h = r0.h + dy;
+      if (d.mode.includes("n")) { r.y = r0.y + dy; r.h = r0.h - dy; }
+
+      if (ratio && corner) {
+        if (d.mode.includes("e") || d.mode.includes("w")) r.h = r.w / ratio;
+        else r.w = r.h * ratio;
+        if (d.mode.includes("n")) r.y = r0.y + r0.h - r.h;
+        if (d.mode.includes("w")) r.x = r0.x + r0.w - r.w;
+      } else if (ratio) {
+        if (d.mode === "e" || d.mode === "w") { r.h = r.w / ratio; r.y = r0.y + (r0.h - r.h) / 2; }
+        else { r.w = r.h * ratio; r.x = r0.x + (r0.w - r.w) / 2; }
+      }
+
+      // 最小尺寸与边界
+      const minS = 12;
+      if (r.w < minS) { if (d.mode.includes("w")) r.x -= (minS - r.w); r.w = minS; }
+      if (r.h < minS) { if (d.mode.includes("n")) r.y -= (minS - r.h); r.h = minS; }
+      if (r.x < 0) { r.w += r.x; r.x = 0; }
+      if (r.y < 0) { r.h += r.y; r.y = 0; }
+      r.w = Math.min(r.w, W - r.x);
+      r.h = Math.min(r.h, H - r.y);
+    }
+
+    state.crop = r;
+  }
+
+  function pickColorAt(p) {
+    const x = clamp(Math.floor(p.x), 0, bctx.canvas.width - 1);
+    const y = clamp(Math.floor(p.y), 0, bctx.canvas.height - 1);
+    const d = bctx.ctx.getImageData(x, y, 1, 1).data;
+    if (d[3] < 10) { toast("该位置是透明像素"); return; }
+    const hex = toHex(d[0], d[1], d[2]);
+    setColor(hex);
+    addPaletteColor(hex);
+    toast(`已提取 ${hex}`);
+  }
+
+  /* ================= 旋转 / 翻转 ================= */
+  function rotate90() {
+    if (!hasImage()) return;
+    const W = bctx.canvas.width, H = bctx.canvas.height;
+    const nc = document.createElement("canvas");
+    nc.width = H; nc.height = W;
+    const c2 = nc.getContext("2d");
+    c2.translate(H, 0);
+    c2.rotate(Math.PI / 2);
+    c2.drawImage(bctx.canvas, 0, 0);
+    bctx.canvas.width = H; bctx.canvas.height = W;
+    bctx.ctx.drawImage(nc, 0, 0);
+    pushHistory();
+    updateInfo();
+    toast("已顺时针旋转 90°");
+  }
+
+  function flipH() {
+    if (!hasImage()) return;
+    const W = bctx.canvas.width, H = bctx.canvas.height;
+    const nc = cloneCanvas(bctx.canvas);
+    bctx.ctx.save();
+    bctx.ctx.clearRect(0, 0, W, H);
+    bctx.ctx.translate(W, 0);
+    bctx.ctx.scale(-1, 1);
+    bctx.ctx.drawImage(nc, 0, 0);
+    bctx.ctx.restore();
+    pushHistory();
+    toast("已水平翻转");
+  }
+
+  /* ================= 下载 ================= */
+  function download() {
+    if (!hasImage()) { toast("请先载入图片"); return; }
+    const fmt = $("exportFormat").value;
+    let url, filename;
+    if (fmt === "jpeg") {
+      const nc = document.createElement("canvas");
+      nc.width = bctx.canvas.width; nc.height = bctx.canvas.height;
+      const c2 = nc.getContext("2d");
+      c2.fillStyle = "#ffffff";
+      c2.fillRect(0, 0, nc.width, nc.height);
+      c2.drawImage(bctx.canvas, 0, 0);
+      url = nc.toDataURL("image/jpeg", 0.92);
+      filename = state.name + "-edited.jpg";
+    } else {
+      url = bctx.canvas.toDataURL("image/png");
+      filename = state.name + "-edited.png";
+    }
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    toast("已下载 " + filename);
+  }
+
+  /* ================= UI 状态 ================= */
+  function updateUI() {
+    const noImg = !hasImage();
+    $("btnUndo").disabled = noImg || state.histIndex <= 0;
+    $("btnRedo").disabled = noImg || state.histIndex >= state.history.length - 1;
+    ["btnDownload", "btnReset", "btnRotate", "btnFlipH"].forEach(id => $(id).disabled = noImg);
+  }
+
+  function updateInfo() {
+    if (!hasImage()) {
+      $("infoName").textContent = "-";
+      $("infoSize").textContent = "-";
+      $("infoOrig").textContent = "-";
+      statusSize.textContent = "";
+      return;
+    }
+    const w = bctx.canvas.width, h = bctx.canvas.height;
+    $("infoName").textContent = state.name;
+    $("infoSize").textContent = `${w} × ${h}`;
+    $("infoOrig").textContent = `${state.origW} × ${state.origH}`;
+    statusSize.textContent = `编辑尺寸 ${w}×${h}`;
+  }
+
+  /* ================= 事件绑定 ================= */
+  $("toolbar").addEventListener("click", e => {
+    const btn = e.target.closest(".tool-btn");
+    if (!btn) return;
+    if (!hasImage()) { toast("请先载入图片"); return; }
+    setTool(btn.dataset.tool);
+  });
+
+  $("btnOpen").addEventListener("click", pickFile);
+  empty.addEventListener("click", pickFile);
+  $("fileInput").addEventListener("change", e => {
+    const f = e.target.files && e.target.files[0];
+    if (f) loadFromBlob(f, f.name);
+    e.target.value = "";
+  });
+
+  $("btnUndo").addEventListener("click", undo);
+  $("btnRedo").addEventListener("click", redo);
+  $("btnDownload").addEventListener("click", download);
+  $("btnRotate").addEventListener("click", rotate90);
+  $("btnFlipH").addEventListener("click", flipH);
+  $("btnReset").addEventListener("click", () => {
+    if (!hasImage() || !state.original) return;
+    cancelCrop(false);
+    bctx.canvas.width = state.original.width;
+    bctx.canvas.height = state.original.height;
+    bctx.ctx.drawImage(state.original, 0, 0);
+    state.history = [];
+    state.histIndex = -1;
+    pushHistory();
+    updateInfo();
+    render();
+    extractColors(true);
+    toast("已恢复原始图片");
+  });
+
+  $("btnCropApply").addEventListener("click", applyCrop);
+  $("btnCropCancel").addEventListener("click", () => { cancelCrop(); setTool("pen"); toast("已取消裁剪"); });
+  ratioSel.addEventListener("change", () => { enforceRatioOnCreate(); render(); });
+
+  $("btnExtract").addEventListener("click", () => extractColors(false));
+
+  colorInput.addEventListener("input", () => setColor(colorInput.value));
+
+  $("lineWidth").addEventListener("input", e => {
+    state.lineWidth = +e.target.value;
+    $("lineWidthVal").textContent = state.lineWidth;
+  });
+  $("fontSize").addEventListener("input", e => {
+    state.fontSize = +e.target.value;
+    $("fontSizeVal").textContent = state.fontSize;
+  });
+  $("fillChk").addEventListener("change", e => { state.fill = e.target.checked; });
+
+  // 文字编辑
+  textInput.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); closeTextEditor(true); }
+    else if (e.key === "Escape") { e.preventDefault(); closeTextEditor(false); }
+  });
+  textInput.addEventListener("blur", () => closeTextEditor(true));
+
+  // 拖拽上传
+  let dragDepth = 0;
+  window.addEventListener("dragenter", e => {
+    e.preventDefault();
+    if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) {
+      dragDepth++;
+      document.body.classList.add("dragging");
+    }
+  });
+  window.addEventListener("dragover", e => e.preventDefault());
+  window.addEventListener("dragleave", e => {
+    e.preventDefault();
+    if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("dragging"); }
+  });
+  window.addEventListener("drop", e => {
+    e.preventDefault();
+    dragDepth = 0;
+    document.body.classList.remove("dragging");
+    const f = e.dataTransfer && e.dataTransfer.files && [...e.dataTransfer.files]
+      .find(f => f.type.startsWith("image/"));
+    if (f) loadFromBlob(f, f.name);
+    else toast("未找到图片文件");
+  });
+
+  // 粘贴上传
+  document.addEventListener("paste", e => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        const f = item.getAsFile();
+        if (f) { loadFromBlob(f, f.name || "pasted-image"); return; }
+      }
+    }
+    toast("剪贴板中没有图片");
+  });
+
+  // 快捷键
+  document.addEventListener("keydown", e => {
+    if (e.target === textInput) return;
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+    else if (ctrl && (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey))) { e.preventDefault(); redo(); }
+    else if (e.key === "Escape") {
+      if (textEditor.classList.contains("show")) closeTextEditor(false);
+      else if (state.tool === "crop") { cancelCrop(); setTool("pen"); }
+    }
+    else if (e.key === "Enter" && state.tool === "crop" && hasImage()) { e.preventDefault(); applyCrop(); }
+  });
+
+  window.addEventListener("resize", () => { if (hasImage()) render(); });
+
+  updateUI();
+  updateInfo();
+})();
+</script>
+</body>
+</html>
